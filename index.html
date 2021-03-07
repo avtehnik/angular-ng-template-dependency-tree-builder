@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>GoJS Class Hierarchy Tree</title>
+  <meta name="description" content="The JavaScript class hierarchy defined by the GoJS library, arranged as a tree."/>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body, #myDiagramDiv {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+    }
+
+    .suggestion,
+    .searchform {
+      width: 400px;
+      background: white;
+    }
+
+    .suggestion {
+      max-height: 700px;
+      overflow-y: scroll;
+    }
+
+    .suggestion .suggestion-item {
+      cursor: pointer;
+      padding: 2px;
+      background: #b2b2b25c;
+      border: 1px #c9c9c9 solid;
+    }
+
+    #vue-app {
+      position: absolute;
+      top: 0;
+      right: 0;
+      z-index: 20;
+    }
+  </style>
+  <script src="js/jquery-3.5.1.min.js"></script>
+  <script src="js/go.js"></script>
+
+</head>
+<body onload="init()">
+<div id="vue-app">
+  <input type="search" id="mySearch" v-model="searchText" v-on:keyup="search()" class="searchform" placeholder="Search">
+  <div class="suggestion">
+    <div class="suggestion-item" v-for="result in results" v-on:click="onSelectFile(result)">
+      {{result.controller}}
+      {{result.filename}}
+    </div>
+  </div>
+  <button id="openSVG">Open SVG</button>
+</div>
+<div id="myDiagramDiv"></div>
+<script src="js/vue.js"></script>
+<script id="code">
+    window.goNodes = {};
+
+    function init() {
+        var vueApp = new Vue({
+            el: '#vue-app',
+            data: {
+                diagram: null,
+                searchText: '',
+                results: [],
+                searchData: [],
+            },
+            methods: {
+                onSelectFile: function(item) {
+                    window.diagram.scrollToRect(window.goNodes[item.key].actualBounds);
+                    window.diagram.select(window.goNodes[item.key]);
+                },
+                loadNodes: function(data) {
+                    this.searchData = data.nodeDataArray;
+                },
+
+                search: function() {
+
+                    if (this.searchText.length == 0) {
+                        this.results = [];
+                    }
+
+                    if (this.searchText.length < 3) {
+                        return;
+                    }
+                    this.results = [];
+
+                    var res = this.searchData.filter(item => {
+                        var searchText = this.searchText.toLowerCase();
+                        var controller = (item.controller.toLowerCase().indexOf(searchText) >= 0);
+                        var filename = (item.filename.toLowerCase().indexOf(searchText) >= 0);
+                        return controller || filename;
+                    });
+
+                    res.forEach(item => {
+                        this.results.push(item);
+                    })
+                }
+            }
+        });
+
+
+        jQuery.getJSON('data.json', function(data) {
+
+            vueApp.loadNodes(data);
+            var $ = go.GraphObject.make;  // for conciseness in defining templates
+            window.diagram = $(go.Diagram, "myDiagramDiv", {layout: $(go.TreeLayout, {nodeSpacing: 3})});
+
+            window.diagram.nodeTemplate = $(go.Node, "Auto",
+                {
+                    selectionAdorned: true,  // don't bother with any selection adornment
+                    selectionChanged: function(node) {
+                        navigator.clipboard.writeText(node.data.filename);
+                    }
+                },
+                // define the node's outer shape
+                $(go.Shape, "Rectangle",
+                    {
+                        name: "SHAPE", fill: "#333333", stroke: 'white', strokeWidth: 3.5,
+                        portId: "", fromLinkable: true, toLinkable: true, cursor: "pointer"
+                    }
+                ),
+                $(go.Panel, "Horizontal",
+                    $(go.Panel, "Table",
+                        {
+                            margin: new go.Margin(6, 10, 3, 6),
+                            defaultAlignment: go.Spot.Left
+                        },
+                        $(go.RowColumnDefinition, {column: 2, width: 4}),
+                        $(go.TextBlock, {font: "9pt  Segoe UI,sans-serif", stroke: "white"},
+                            {name: "key", row: 1, column: 0, margin: 4},
+                            new go.Binding("text", "filename")),
+                        $(go.TextBlock, {font: "9pt  Segoe UI,sans-serif", stroke: "white"},
+                            {name: "controller", row: 2, column: 0, margin: 4}, // we include a name so we can access this TextBlock when deleting Nodes/Links
+                            new go.Binding("text", "controller", function(v) {
+                                return "CTRL: " + v;
+                            }))
+                    )  // end Table Panel
+                ) // end Horizontal Panel
+            );  // end Node
+
+            // Define a trivial link template with no arrowhead
+            window.diagram.linkTemplate =
+                $(go.Link,
+                    {
+                        curve: go.Link.Bezier,
+                        toEndSegmentLength: 30, fromEndSegmentLength: 30
+                    },
+                    $(go.Shape, {strokeWidth: 1.5}) // the link shape, with the default black stroke
+                );
+
+            window.diagram.model = go.Model.fromJson(JSON.stringify(data));
+            window.diagram.nodes.each(function(node) {
+                window.goNodes[node.data.key] = node;
+            });
+        });
+
+        var button = document.getElementById('openSVG');
+        button.addEventListener('click', function() {
+            var newWindow = window.open("", "newWindow");
+            if (!newWindow) return;
+            var newDocument = newWindow.document;
+            var svg = window.diagram.makeSvg({
+                document: newDocument,  // create SVG DOM in new document context
+                scale: 1,
+            });
+            newDocument.body.appendChild(svg);
+        }, false);
+    }
+</script>
+</body>
+</html>
